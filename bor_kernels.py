@@ -283,22 +283,26 @@ def _mfie_brackets(rho_p, z_p, tr_p, tz_p, rho_q, z_q, tr_q, tz_q, k, xi):
     Rz = (z_p - z_q)[..., None] + 0.0 * cx
     R = np.sqrt(Rx ** 2 + Ry ** 2 + Rz ** 2)
     R = np.maximum(R, 1e-300)
-    p = (1.0 + 1j * complex(k) * R) * np.exp(-1j * complex(k) * R) / (4.0 * np.pi * R ** 3)
+    # Exact-coincidence pairs underflow R^3 -> inf -> NaN here by design;
+    # their table rows are zeroed by the caller's near-pair masking, so
+    # suppress the (otherwise log-spamming) runtime warnings at the source.
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+        p = (1.0 + 1j * complex(k) * R) * np.exp(-1j * complex(k) * R) / (4.0 * np.pi * R ** 3)
 
-    WtR = tr_p[..., None] * Rx + tz_p[..., None] * Rz
-    WfR = Ry
-    nR = -tz_p[..., None] * Rx + tr_p[..., None] * Rz
-    n_tq = -(tz_p * tr_q)[..., None] * cx + (tr_p * tz_q)[..., None]
-    n_fq = -tz_p[..., None] * sx
-    Wt_tq = (tr_p * tr_q)[..., None] * cx + (tz_p * tz_q)[..., None]
-    Wt_fq = tr_p[..., None] * sx
-    Wf_tq = -tr_q[..., None] * sx
-    Wf_fq = cx + 0.0 * Rx
+        WtR = tr_p[..., None] * Rx + tz_p[..., None] * Rz
+        WfR = Ry
+        nR = -tz_p[..., None] * Rx + tr_p[..., None] * Rz
+        n_tq = -(tz_p * tr_q)[..., None] * cx + (tr_p * tz_q)[..., None]
+        n_fq = -tz_p[..., None] * sx
+        Wt_tq = (tr_p * tr_q)[..., None] * cx + (tz_p * tz_q)[..., None]
+        Wt_fq = tr_p[..., None] * sx
+        Wf_tq = -tr_q[..., None] * sx
+        Wf_fq = cx + 0.0 * Rx
 
-    Ftt = -p * (WtR * n_tq - Wt_tq * nR)
-    Ftf = -p * (WtR * n_fq - Wt_fq * nR)
-    Fft = -p * (WfR * n_tq - Wf_tq * nR)
-    Fff = -p * (WfR * n_fq - Wf_fq * nR)
+        Ftt = -p * (WtR * n_tq - Wt_tq * nR)
+        Ftf = -p * (WtR * n_fq - Wt_fq * nR)
+        Fft = -p * (WfR * n_tq - Wf_tq * nR)
+        Fff = -p * (WfR * n_fq - Wf_fq * nR)
     return Ftt, Ftf, Fft, Fff
 
 
@@ -450,24 +454,27 @@ def _ibc_brackets_grid(rho_p, z_p, tr_p, tz_p, rho_q, z_q, tr_q, tz_q, k, xi):
     Ry = rho_q[:, None] * sx
     Rz = (z_p - z_q)[:, None] * np.ones_like(cx)
     R = np.maximum(np.sqrt(Rx ** 2 + Ry ** 2 + Rz ** 2), 1e-300)
-    p = (1.0 + 1j * complex(k) * R) * np.exp(-1j * complex(k) * R) / (4.0 * np.pi * R ** 3)
+    # Exact-coincidence pairs go inf -> NaN here by design; their table rows
+    # are zeroed by the caller's near-pair masking (see _mfie_brackets).
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+        p = (1.0 + 1j * complex(k) * R) * np.exp(-1j * complex(k) * R) / (4.0 * np.pi * R ** 3)
 
-    # source normal (outward): n_q = (-tz_q, 0, tr_q) rotated to phi' = -xi
-    # dot table (test at phi = 0):
-    Wt_nq = -(tr_p * tz_q)[:, None] * cx + (tz_p * tr_q)[:, None] * np.ones_like(cx)
-    Wf_nq = tz_q[:, None] * sx
-    R_tq = tr_q[:, None] * (rho_p[:, None] * cx - rho_q[:, None]) + tz_q[:, None] * Rz
-    R_fq = rho_p[:, None] * sx
-    R_nq = -tz_q[:, None] * (rho_p[:, None] * cx - rho_q[:, None]) + tr_q[:, None] * Rz
-    Wt_tq = (tr_p * tr_q)[:, None] * cx + (tz_p * tz_q)[:, None] * np.ones_like(cx)
-    Wt_fq = tr_p[:, None] * sx
-    Wf_tq = -tr_q[:, None] * sx
-    Wf_fq = cx * np.ones_like(Rx)
+        # source normal (outward): n_q = (-tz_q, 0, tr_q) rotated to phi' = -xi
+        # dot table (test at phi = 0):
+        Wt_nq = -(tr_p * tz_q)[:, None] * cx + (tz_p * tr_q)[:, None] * np.ones_like(cx)
+        Wf_nq = tz_q[:, None] * sx
+        R_tq = tr_q[:, None] * (rho_p[:, None] * cx - rho_q[:, None]) + tz_q[:, None] * Rz
+        R_fq = rho_p[:, None] * sx
+        R_nq = -tz_q[:, None] * (rho_p[:, None] * cx - rho_q[:, None]) + tr_q[:, None] * Rz
+        Wt_tq = (tr_p * tr_q)[:, None] * cx + (tz_p * tz_q)[:, None] * np.ones_like(cx)
+        Wt_fq = tr_p[:, None] * sx
+        Wf_tq = -tr_q[:, None] * sx
+        Wf_fq = cx * np.ones_like(Rx)
 
-    Btt = p * (Wt_nq * R_tq - Wt_tq * R_nq)
-    Btf = p * (Wt_nq * R_fq - Wt_fq * R_nq)
-    Bft = p * (Wf_nq * R_tq - Wf_tq * R_nq)
-    Bff = p * (Wf_nq * R_fq - Wf_fq * R_nq)
+        Btt = p * (Wt_nq * R_tq - Wt_tq * R_nq)
+        Btf = p * (Wt_nq * R_fq - Wt_fq * R_nq)
+        Bft = p * (Wf_nq * R_tq - Wf_tq * R_nq)
+        Bff = p * (Wf_nq * R_fq - Wf_fq * R_nq)
     return Btt, Btf, Bft, Bff
 
 

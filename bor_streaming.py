@@ -35,6 +35,7 @@ import ctypes
 import math
 import os
 import platform
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Tuple
@@ -73,6 +74,32 @@ def _load_native():
 
 
 _NATIVE = _load_native()
+_FALLBACK_NOTICE_SHOWN = False
+
+
+def _notice_numpy_fallback():
+    """One-time stderr notice when the streaming build runs on the NumPy
+    sampler.  Results are bit-equivalent; assembly is ~2-8x slower.  Also
+    diagnoses the found-but-wrong-platform case (e.g. a Mac .so copied to a
+    Linux cluster), which the loader correctly refuses to load."""
+    global _FALLBACK_NOTICE_SHOWN
+    if _FALLBACK_NOTICE_SHOWN:
+        return
+    _FALLBACK_NOTICE_SHOWN = True
+    here = os.path.dirname(os.path.abspath(__file__))
+    tag = f"{platform.system().lower()}-{platform.machine().lower()}"
+    others = [f for f in sorted(os.listdir(here))
+              if f.startswith("bor_stream_kernel.") and f.endswith(".so")
+              and tag not in f]
+    hint = (f" (found {', '.join(others)} — built for a DIFFERENT platform, "
+            "so it was correctly skipped)" if others else "")
+    print(
+        "bor_streaming: native sampling kernel not available for this "
+        f"platform{hint}; using the NumPy fallback (bit-equivalent, ~2-8x "
+        "slower assembly). Compile it on THIS machine with:\n"
+        "  cc -O3 -shared -fPIC -o "
+        f"bor_stream_kernel.{tag}.so bor_stream_kernel.c -lm",
+        file=sys.stderr, flush=True)
 
 
 def _dp(a: np.ndarray):
@@ -167,6 +194,8 @@ class StreamingFarBlocks:
         # exactly what the solve_bor streaming path serves)
         self._native = (_NATIVE if (_NATIVE is not None and
                                     abs(complex(k).imag) == 0.0) else None)
+        if _NATIVE is None:
+            _notice_numpy_fallback()
         self._q = tuple(np.ascontiguousarray(v) for v in
                         (g.rho, g.z, g.trho, g.tz))
         self._acc_lock = threading.Lock()

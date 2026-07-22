@@ -175,8 +175,11 @@ don't wire labels by hand).
 - **Memory/scale (BoR)**: assembly auto-switches between validated table
   and streaming paths and single/double precision by memory estimate; a
   hard 32 GB gate refuses with guidance instead of swapping. Compile
-  `bor_stream_kernel.c` on the target machine for the fast native sampler
-  (silent NumPy fallback otherwise).
+  `bor_stream_kernel.c` **on the target machine** for the fast native
+  sampler — the loader only accepts a build tagged for the platform it is
+  running on (a Mac `.so` copied to a Linux cluster is correctly skipped),
+  and prints a one-time notice with the exact compile line when it falls
+  back to the bit-equivalent (~2-8x slower) NumPy sampler.
 - **Mie/analytic gates**: `tests/` contains the validation batteries (2D
   cylinders, BoR spheres/coatings/junctions/streaming). Run them once on
   any new machine before committing node-hours.

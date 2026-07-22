@@ -552,7 +552,10 @@ def _result_from_grim(path, pol):
     (the exports preserve the complex far-field amplitudes)."""
     import numpy as np
     d = np.load(str(path))
-    if not bool(d.get("raw_complex_amplitude_preserved", False)):
+    # NpzFile.get() only exists on numpy >= 1.25; use .files membership so
+    # this runs on older HPC numpy builds too.
+    if ("raw_complex_amplitude_preserved" not in getattr(d, "files", [])
+            or not bool(d["raw_complex_amplitude_preserved"])):
         raise ValueError(f"{path.name}: complex amplitudes were not preserved.")
     samples = []
     az = d["azimuths"]           # aspect angles for BoR exports
