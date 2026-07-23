@@ -40,6 +40,40 @@ try:
 except Exception:
     _SCIPY_SPARSE_LINALG = None
 
+_GMRES_KWARGS = None
+
+
+def _gmres_compat(*args, rtol, atol, **kwargs):
+    """scipy.sparse.linalg.gmres across scipy versions (HPC clusters ship
+    very old builds).  Signature history:
+
+      scipy >= 1.12 : rtol + atol   (tol removed in 1.14)
+      1.1 .. 1.11   : tol  + atol
+      < 1.1         : tol only      (no atol; legacy stop at ||r||/||b|| < tol)
+
+    The tolerance intent is preserved in every tier: our call sites always
+    pass atol == rtol, and the legacy relative-only criterion matches that
+    for any nonzero RHS.  The signature is inspected once and cached.
+    """
+
+    global _GMRES_KWARGS
+    if _GMRES_KWARGS is None:
+        import inspect
+        try:
+            params = inspect.signature(_SCIPY_SPARSE_LINALG.gmres).parameters
+            has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD
+                             for p in params.values())
+            _GMRES_KWARGS = ("rtol" if ("rtol" in params or has_kwargs) else "tol",
+                             ("atol" in params) or has_kwargs)
+        except (TypeError, ValueError):
+            _GMRES_KWARGS = ("rtol", True)
+    tol_name, has_atol = _GMRES_KWARGS
+    kw = dict(kwargs)
+    kw[tol_name] = rtol
+    if has_atol:
+        kw["atol"] = atol
+    return _SCIPY_SPARSE_LINALG.gmres(*args, **kw)
+
 try:
     import mpmath as _MPMATH
 except Exception:
@@ -3965,7 +3999,7 @@ def _solve_with_prepared_solver(prepared: PreparedLinearSolver, rhs: np.ndarray)
             # rtol must be passed explicitly: scipy stops at
             # max(rtol*||b||, atol) with rtol defaulting to 1e-5, which would
             # silently override the much tighter atol requested here.
-            sol, info = _SCIPY_SPARSE_LINALG.gmres(
+            sol, info = _gmres_compat(
                 a, rhs_eval, M=prepared.preconditioner,
                 restart=prepared.gmres_restart,
                 maxiter=prepared.gmres_maxiter,
@@ -3979,7 +4013,7 @@ def _solve_with_prepared_solver(prepared: PreparedLinearSolver, rhs: np.ndarray)
         # Multi-RHS: solve each column.
         sols = []
         for i in range(rhs_eval.shape[1]):
-            sol_i, info = _SCIPY_SPARSE_LINALG.gmres(
+            sol_i, info = _gmres_compat(
                 a, rhs_eval[:, i], M=prepared.preconditioner,
                 restart=prepared.gmres_restart,
                 maxiter=prepared.gmres_maxiter,
@@ -4290,7 +4324,7 @@ def _solve_te_robin_mfie(
             (nnodes, nnodes), matvec=mfie_matvec, dtype=np.complex128)
         sigma_mat = np.zeros((nnodes, elev.size), dtype=np.complex128)
         for col in range(elev.size):
-            sigma_mat[:, col], info = _SCIPY_SPARSE_LINALG.gmres(
+            sigma_mat[:, col], info = _gmres_compat(
                 A_op, rhs_mfie[:, col], rtol=1e-10, atol=1e-10,
                 restart=50, maxiter=300)
             if info != 0:
@@ -5668,7 +5702,7 @@ def _solve_multi_region_indirect(mesh, infos, pol, k0, elevations_deg, obs_order
             (n_dof, n_dof), matvec=block_matvec, dtype=np.complex128)
         sol = np.zeros((n_dof, elev.size), dtype=np.complex128)
         for col in range(elev.size):
-            sol[:, col], info = _SCIPY_SPARSE_LINALG.gmres(
+            sol[:, col], info = _gmres_compat(
                 A_op, Brhs[:, col], rtol=1e-10, atol=1e-10,
                 restart=80, maxiter=500, M=M_precond)
             if info != 0:
